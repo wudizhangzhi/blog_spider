@@ -4,7 +4,7 @@ import sys
 import traceback
 from hashlib import md5
 from urllib import parse
-from random import randrange, random
+from random import randrange, random, choice
 
 import requests
 from selenium.common.exceptions import NoSuchElementException
@@ -168,16 +168,8 @@ class CustomSeleniumSpider(object):
             )
         )
 
-    def extract_links(self, response):
-        # 解析url
-        for extractor in self.linkextractors:
-            links = extractor.extract_links(response)
-            for link in links:
-                request = SeleniumRequest(
-                    url=link.url,
-                    meta=dict(),
-                )
-                self.add_request(request)
+    def extract_links(self):
+        return self.driver.find_elements_by_tag_name('a')
 
     def add_request(self, request):
         fp = request_fingerprint(request, keep_fragments=True)
@@ -268,7 +260,9 @@ class CustomSeleniumSpider(object):
             ele_target.click()
             self.random_sleep(2)
             # TODO 随便寻找链接点击
-            self.extract_links(self.get_response())
+
+            ele_link = choice(self.extract_links())
+            print(ele_link)
 
 
         # for start_url in self.start_urls:
