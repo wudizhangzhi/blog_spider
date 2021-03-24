@@ -4,6 +4,7 @@ import sys
 import traceback
 from hashlib import md5
 from urllib import parse
+from random import randrange, random
 
 import requests
 from selenium.common.exceptions import NoSuchElementException
@@ -37,10 +38,10 @@ class CustomSeleniumSpider(object):
     """
     访问百度，然后进入网站模拟人为模式浏览
     """
-    allowed_domains = ['demo.patec.net']
-    start_urls = [
-        'https://demo.patec.net/p#/workbench/index',
-    ]
+    allowed_domains = ['blog.yueyawochong.cn', 'www.itdaan.com']
+    # start_urls = [
+    #     'https://demo.patec.net/p#/workbench/index',
+    # ]
     linkextractors = (
         LinkExtractor(
             allow=('.*',),
@@ -61,6 +62,7 @@ class CustomSeleniumSpider(object):
         #
         self.queue = list()
         self.fingerprints = set()
+        self.search_page_count = 1
 
     def __enter__(self):
         return self
@@ -122,12 +124,24 @@ class CustomSeleniumSpider(object):
         # driver.maximize_window()
         self.driver.set_window_size(1366, 942)
 
+    def reset(self):
+        self.search_page_count = 0
+
+    @staticmethod
+    def random_sleep(start=None, end=None):
+        if not start:
+            start = 0
+        if not end:
+            end = start + 1
+        time.sleep(randrange(start, end) + random())
+
     @staticmethod
     def get_proxy():
         return requests.get('http://192.168.20.27:5010', timeout=10).text.replace('http://', '')
 
     def fetch(self, url, meta=None):
         self.driver.get(url)
+        self.random_sleep(start=1)
         meta = meta or dict()
         body = str.encode(self.driver.page_source)
         screenshot = self.driver.get_screenshot_as_base64()
@@ -138,6 +152,19 @@ class CustomSeleniumSpider(object):
             request=SeleniumRequest(
                 url=url,
                 meta=dict(screenshot=screenshot, **meta),
+            )
+        )
+
+    def get_response(self):
+        body = str.encode(self.driver.page_source)
+        screenshot = self.driver.get_screenshot_as_base64()
+        return HtmlResponse(
+            self.driver.current_url,
+            body=body,
+            encoding='utf-8',
+            request=SeleniumRequest(
+                url=self.driver.current_url,
+                meta=dict(screenshot=screenshot),
             )
         )
 
@@ -174,21 +201,29 @@ class CustomSeleniumSpider(object):
         WebDriverWait(self.driver, 10, ).until(EC.presence_of_element_located((By.ID, 'kw')))
         ele_input = self.driver.find_element_by_id('kw')
         ele_input.send_keys(text)
-        time.sleep(0.5)
+        self.random_sleep()
         ele_submit = self.driver.find_element_by_id('su')
         ele_submit.click()
-        time.sleep(3)
+        self.random_sleep(start=3)
 
     @staticmethod
     def get_baidu_true_url(link):
         parsed = parse.urlsplit(link)
         query_dict = parse.parse_qs(parsed.query)
-        pared_url = f"{parsed.scheme}://{parsed.netloc}/?url={query_dict['url'][0]}"
+        pared_url = f"{parsed.scheme}://{parsed.netloc}/link?url={query_dict['url'][0]}"
         return requests.head(pared_url, allow_redirects=True, timeout=10).url
 
     @staticmethod
     def get_domain(link):
         return parse.urlsplit(link).netloc
+
+    def baidu_next_page(self):
+        print(f'下一页: {self.search_page_count}')
+        # 翻页
+        ele_next = self.driver.find_element_by_xpath('//*[@id="page"]/div/a[@class="n"]')
+        ele_next.click()
+        self.search_page_count += 1
+        self.random_sleep(start=2)
 
     def baidu_find_domain_result(self):
         elements = self.driver.find_elements_by_xpath('//*[@id="content_left"]/div')
@@ -198,13 +233,20 @@ class CustomSeleniumSpider(object):
                 link = a.get_attribute('href')
                 title = a.text
                 link_true = self.get_baidu_true_url(link)
+                print(f"匹配: {title} {link_true}")
                 if self.get_domain(link_true) in self.allowed_domains:
+                    text = f'| 找到: {title} {link_true} |'
+                    print('-' * len(text))
+                    print(text)
+                    print('-' * len(text))
                     return element
-            except NoSuchElementException:
+            # except NoSuchElementException:
+            except:
                 pass
         else:
-            # 翻页
-            pass
+            if self.search_page_count < 10:  # 最大搜索页数
+                self.baidu_next_page()
+                return self.baidu_find_domain_result()
 
     def start(self):
         """
@@ -217,7 +259,17 @@ class CustomSeleniumSpider(object):
         for search_text in self.search_list:
             self.baidu_search(search_text)
             # 寻找自己的domain
-            self.baidu_find_domain_result()
+            ele_target = self.baidu_find_domain_result()
+            self.reset()
+            if not ele_target:
+                raise Exception(f'没有找到目标: {search_text}')
+
+            # 找到目标后进入，并模拟访问
+            ele_target.click()
+            self.random_sleep(2)
+            # TODO 随便寻找链接点击
+            self.extract_links(self.get_response())
+
 
         # for start_url in self.start_urls:
         #     response = self.fetch(start_url)

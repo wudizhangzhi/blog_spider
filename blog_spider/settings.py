@@ -90,5 +90,9 @@ from os.path import join, dirname, abspath
 
 SELENIUM_DRIVER_NAME = 'chrome'
 SELENIUM_DRIVER_EXECUTABLE_PATH = join(dirname(dirname(abspath(__file__))), 'driver', 'chromedriver.exe')
-SELENIUM_DRIVER_ARGUMENTS = ['--web-security=no', '--ssl-protocol=any', '--ignore-ssl-errors=true', '--headless']
+SELENIUM_DRIVER_ARGUMENTS = [
+    '--web-security=no', '--ssl-protocol=any', '--ignore-ssl-errors=true',
+    '--headless'
+]
+
 SEARCH_LIST = ["Hexo NexT相关配置以及美化"]
