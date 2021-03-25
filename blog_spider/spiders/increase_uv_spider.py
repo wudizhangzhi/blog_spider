@@ -7,7 +7,7 @@ from urllib import parse
 from random import randrange, random, choice
 
 import requests
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, MoveTargetOutOfBoundsException
 
 sys.path.append('../..')
 import time
@@ -22,6 +22,7 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.wait import WebDriverWait
+from selenium.webdriver.common.action_chains import ActionChains
 from scrapy.linkextractors import LinkExtractor
 from scrapy.spiders import Rule
 from user_agent import generate_user_agent
@@ -51,6 +52,8 @@ class CustomSeleniumSpider(object):
             )
         ),
     )
+    WIDTH = 1366
+    HEIGHT = 942
 
     def __init__(self):
         self.search_list = getattr(settings, 'SEARCH_LIST', [])
@@ -112,6 +115,10 @@ class CustomSeleniumSpider(object):
             # 随机头
             driver_options.add_argument(
                 f"user-agent={generate_user_agent(os=('win',), device_type=('desktop',), navigator=('chrome',))}")
+            # 代理
+            driver_options.add_argument(
+                f"--proxy-server={self.get_proxy()}"
+            )
             driver_kwargs = {
                 'executable_path': driver_executable_path,
                 f'{driver_name}_options': driver_options
@@ -122,18 +129,22 @@ class CustomSeleniumSpider(object):
         self.driver.implicitly_wait(5)
         self.driver.set_page_load_timeout(60)
         # driver.maximize_window()
-        self.driver.set_window_size(1366, 942)
+        self.driver.set_window_size(self.WIDTH, self.HEIGHT)
 
     def reset(self):
         self.search_page_count = 0
 
     @staticmethod
-    def random_sleep(start=None, end=None):
+    def random_sec(start=None, end=None):
         if not start:
             start = 0
         if not end:
             end = start + 1
-        time.sleep(randrange(start, end) + random())
+        return randrange(start, end) + random()
+
+    @staticmethod
+    def random_sleep(start=None, end=None):
+        time.sleep(CustomSeleniumSpider.random_sec(start, end))
 
     @staticmethod
     def get_proxy():
@@ -169,7 +180,7 @@ class CustomSeleniumSpider(object):
         )
 
     def extract_links(self):
-        return self.driver.find_elements_by_tag_name('a')
+        return [i for i in self.driver.find_elements_by_tag_name('a') if i.is_displayed()]
 
     def add_request(self, request):
         fp = request_fingerprint(request, keep_fragments=True)
@@ -195,7 +206,7 @@ class CustomSeleniumSpider(object):
         ele_input.send_keys(text)
         self.random_sleep()
         ele_submit = self.driver.find_element_by_id('su')
-        ele_submit.click()
+        self.perform_click(ele_submit)
         self.random_sleep(start=3)
 
     @staticmethod
@@ -231,7 +242,7 @@ class CustomSeleniumSpider(object):
                     print('-' * len(text))
                     print(text)
                     print('-' * len(text))
-                    return element
+                    return link
             # except NoSuchElementException:
             except:
                 pass
@@ -239,6 +250,60 @@ class CustomSeleniumSpider(object):
             if self.search_page_count < 10:  # 最大搜索页数
                 self.baidu_next_page()
                 return self.baidu_find_domain_result()
+
+    def perform_click(self, ele):
+        ActionChains(self.driver).move_to_element(ele).pause(self.random_sec(1)).click(ele).perform()
+
+    def perform_view(self):
+        # last_height = self.driver.execute_script("return document.body.scrollHeight")
+        # self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        print('模拟浏览的操作')
+        chains = ActionChains(self.driver)
+        idx = 0
+        for i in range(randrange(5, 10)):
+            # 随机操作
+            if random() > 0.5:
+                chains = chains.send_keys(Keys.ARROW_DOWN).pause(self.random_sec(1))
+                print(f'{idx} ARROW_DOWN')
+                idx += 1
+            if random() > 0.5:
+                chains = chains.send_keys(Keys.ARROW_UP).pause(self.random_sec(1))
+                print(f'{idx} ARROW_UP')
+                idx += 1
+            # 随机点击拖拽
+            if random() > 0.8:
+                # xoffset, yoffset = randrange(self.WIDTH // 2), randrange(self.HEIGHT // 2)
+                # to_xoffset, to_yoffset = min(xoffset + randrange(5, 30), self.WIDTH), min(yoffset + randrange(5, 30),
+                #                                                                           self.HEIGHT)
+                to_xoffset, to_yoffset = randrange(5, 30), randrange(5, 30)
+                idx += 1
+                ele = choice([i for i in self.driver.find_elements_by_tag_name('div') if i.is_displayed()])
+                print(f'{idx} drag {ele.location} -> ({to_xoffset} {to_yoffset})')
+                # chains = chains.move_by_offset(xoffset, yoffset). \
+                #     click_and_hold().pause(self.random_sec()). \
+                #     move_by_offset(to_xoffset, to_yoffset). \
+                #     pause(self.random_sec()).release()
+                chains = chains.move_to_element(ele).pause(self.random_sec()). \
+                    click_and_hold().pause(self.random_sec()).move_by_offset(to_xoffset, to_yoffset). \
+                    pause(self.random_sec())
+        try:
+            chains.perform()
+        except MoveTargetOutOfBoundsException as e:
+            print(e)
+
+    def simulation_human_visit(self):
+        # 随便寻找链接点击
+        for depth in range(randrange(1, 10)):
+            print(f'浏览: {depth}')
+            if self.get_domain(self.driver.current_url) not in self.allowed_domains:
+                print(f'域名跳出: {self.driver.current_url}')
+                break
+            self.perform_view()
+            ele_link = choice(self.extract_links())
+            print(f"选中: {ele_link.get_attribute('href')}")
+            self.perform_click(ele_link)
+
+            self.random_sleep(5)
 
     def start(self):
         """
@@ -251,62 +316,30 @@ class CustomSeleniumSpider(object):
         for search_text in self.search_list:
             self.baidu_search(search_text)
             # 寻找自己的domain
-            ele_target = self.baidu_find_domain_result()
+            target = self.baidu_find_domain_result()
             self.reset()
-            if not ele_target:
+            if not target:
                 raise Exception(f'没有找到目标: {search_text}')
-
+            print(f'点击进入网站: {target}')
             # 找到目标后进入，并模拟访问
-            ele_target.click()
-            self.random_sleep(2)
-            # TODO 随便寻找链接点击
+            self.fetch(target)
+            self.random_sleep(8)
+            self.simulation_human_visit()
 
-            ele_link = choice(self.extract_links())
-            print(ele_link)
-
-
-        # for start_url in self.start_urls:
-        #     response = self.fetch(start_url)
-        #     # 解析url
-        #     self.extract_links(response)
-        #
-        # # 处理任务队列
-        # for request in self.queue:
-        #     try:
-        #         response = self.handle_request(request)
-        #         # 是否有分页
-        #         meta = response.meta.copy()
-        #         if not meta.get('page'):
-        #             # 是否含有分页, 有的话加入队列
-        #             pagination = response.xpath('//div[@class="pagination-container"]')
-        #             if pagination:
-        #                 pagination = pagination[0]
-        #                 pages = pagination.xpath('./div/ul/li/text()').extract()
-        #                 last_page = pages[-1]
-        #                 logging.warning(f'{request.url} 是否含有分页last_page: {pages}')
-        #                 if last_page and last_page.isdigit() and int(last_page) > 1:
-        #                     for page in range(2, int(last_page)):
-        #                         _meta = meta.copy()
-        #                         _meta.pop('screenshot', None)
-        #                         _meta.update({
-        #                             'page': page
-        #                         })
-        #                         request = SeleniumRequest(
-        #                             url=response.request.url,
-        #                             meta=_meta,
-        #                             dont_filter=True,
-        #                         )
-        #                         self.add_request(request)
-        #         # 保存
-        #     except KeyboardInterrupt:
-        #         print('手动停止')
-        #         break
-        #     except:
-        #         logging.error(traceback.format_exc())
+    def start_one_url(self, target):
+        # 找到目标后进入，并模拟访问
+        self.fetch(target)
+        self.random_sleep(8)
+        self.simulation_human_visit()
 
 
 if __name__ == '__main__':
-    start = datetime.datetime.now()
-    with CustomSeleniumSpider() as spider:
-        spider.start()
-    print(f'用时: {datetime.datetime.now() - start}')
+    for i in range(1000):
+        start = datetime.datetime.now()
+        try:
+            with CustomSeleniumSpider() as spider:
+                # spider.start()
+                spider.start_one_url('http://blog.yueyawochong.cn')
+        except:
+            pass
+        print(f'用时: {datetime.datetime.now() - start}')
