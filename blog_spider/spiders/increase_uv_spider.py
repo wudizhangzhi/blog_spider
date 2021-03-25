@@ -1,6 +1,7 @@
 import datetime
 import logging
 import sys
+from concurrent import futures
 import traceback
 from hashlib import md5
 from urllib import parse
@@ -333,13 +334,20 @@ class CustomSeleniumSpider(object):
         self.simulation_human_visit()
 
 
-if __name__ == '__main__':
-    for i in range(1000):
+def run(num=1000):
+    for i in range(num):
         start = datetime.datetime.now()
         try:
             with CustomSeleniumSpider() as spider:
                 # spider.start()
                 spider.start_one_url('http://blog.yueyawochong.cn')
+        except KeyboardInterrupt:
+            break
         except:
             pass
         print(f'用时: {datetime.datetime.now() - start}')
+
+
+if __name__ == '__main__':
+    with futures.ProcessPoolExecutor(max_workers=4) as executor:
+        executor.map(run, [100, 100, 100, 100])
