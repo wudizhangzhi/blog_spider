@@ -917,8 +917,11 @@ def main():
 
         if file_.startswith('http://') or file_.startswith('https://'):
             baseurl = file_
-            j = urllib.urlopen(baseurl)
-            data = j.read()
+            # j = urllib.urlopen(baseurl)
+            import requests
+            j = requests.get(baseurl, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/89.0.4389.90 Safari/537.36'})
+            # data = j.read()
+            data = j.content
             if encoding is None:
                 try:
                     from feedparser import _getCharacterEncoding as enc
@@ -940,9 +943,11 @@ def main():
 
     data = data.decode(encoding)
     root = etree.HTML(data)
-    title = root.xpath('//title/text()')[0]
-    data = etree.tostring(root.xpath(options.xpath)[0])
-    data = data.decode(encoding)
+    title = root.xpath('//title/text()')
+    title = title[0] if title else ''
+    if options.xpath:
+        data = etree.tostring(root.xpath(options.xpath)[0])
+        data = data.decode(encoding)
     h = HTML2Text(baseurl=baseurl)
     # handle options
     if options.ul_style_dash: h.ul_item_mark = '-'
@@ -960,6 +965,7 @@ def main():
     h.escape_snob = options.escape_snob
 
     # wrapwrite()
+    origin_title = title
     if '|' in title:
         title = title.split('|')[0]
     output = title.replace(' ', '') + '.md'
@@ -969,9 +975,14 @@ def main():
         header = f"""---
 title: {title}
 tags:
+date: 2020-01-20 23:00:00
 categories: 教育
 description: {title}
 ---
+
+转自[{origin_title}]({baseurl})
+
+
 """
         f.write(header + h.handle(data))
 

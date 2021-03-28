@@ -95,4 +95,9 @@ SELENIUM_DRIVER_ARGUMENTS = [
     '--headless'
 ]
 
-SEARCH_LIST = ["Hexo NexT相关配置以及美化"]
+SEARCH_LIST = [
+    # "Hexo NexT相关配置以及美化",
+    'hexo url:"yueyawochong."',
+]
+# PROXY_API = "http://192.168.20.27:5010"
+PROXY_API = "http://127.0.0.1:5555/random"

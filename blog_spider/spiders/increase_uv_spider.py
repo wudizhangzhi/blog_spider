@@ -56,7 +56,8 @@ class CustomSeleniumSpider(object):
     WIDTH = 1366
     HEIGHT = 942
 
-    def __init__(self):
+    def __init__(self, use_google=None):
+        self.use_google = use_google
         self.search_list = getattr(settings, 'SEARCH_LIST', [])
         driver_name = getattr(settings, 'SELENIUM_DRIVER_NAME', None)
         driver_executable_path = getattr(settings, 'SELENIUM_DRIVER_EXECUTABLE_PATH', None)
@@ -147,9 +148,10 @@ class CustomSeleniumSpider(object):
     def random_sleep(start=None, end=None):
         time.sleep(CustomSeleniumSpider.random_sec(start, end))
 
-    @staticmethod
-    def get_proxy():
-        return requests.get('http://192.168.20.27:5010', timeout=10).text.replace('http://', '')
+    def get_proxy(self):
+        if self.use_google:
+            return self.use_google
+        return requests.get(getattr(settings, 'PROXY_API'), timeout=10).text.replace('http://', '')
 
     def fetch(self, url, meta=None):
         self.driver.get(url)
@@ -210,6 +212,16 @@ class CustomSeleniumSpider(object):
         self.perform_click(ele_submit)
         self.random_sleep(start=3)
 
+    def google_search(self, text):
+        logging.debug(f'谷歌搜索: {text}')
+        self.fetch('https://google.com')
+        WebDriverWait(self.driver, 10, ).until(EC.presence_of_element_located((By.NAME, 'q')))
+        ele_input = self.driver.find_element(by=By.NAME, value='q')
+        ele_input.send_keys(text)
+        self.random_sleep()
+        ele_input.send_keys(Keys.ENTER)
+        self.random_sleep(start=3)
+
     @staticmethod
     def get_baidu_true_url(link):
         parsed = parse.urlsplit(link)
@@ -225,6 +237,14 @@ class CustomSeleniumSpider(object):
         print(f'下一页: {self.search_page_count}')
         # 翻页
         ele_next = self.driver.find_element_by_xpath('//*[@id="page"]/div/a[@class="n"]')
+        ele_next.click()
+        self.search_page_count += 1
+        self.random_sleep(start=2)
+
+    def google_next_page(self):
+        print(f'下一页: {self.search_page_count}')
+        # 翻页
+        ele_next = self.driver.find_element_by_xpath('//*[@id="pnnext"]')
         ele_next.click()
         self.search_page_count += 1
         self.random_sleep(start=2)
@@ -251,6 +271,28 @@ class CustomSeleniumSpider(object):
             if self.search_page_count < 10:  # 最大搜索页数
                 self.baidu_next_page()
                 return self.baidu_find_domain_result()
+
+    def google_find_domain_result(self):
+        elements = self.driver.find_elements_by_xpath('//*[@id="rso"]/div/div[@class="g"]')
+        for element in elements:
+            try:
+                a = element.find_element_by_xpath('.//a')
+                link = a.get_attribute('href')
+                title = a.text
+                print(f"匹配: {title} {link}")
+                if self.get_domain(link) in self.allowed_domains:
+                    text = f'| 找到: {title} {link} |'
+                    print('-' * len(text))
+                    print(text)
+                    print('-' * len(text))
+                    return link
+            # except NoSuchElementException:
+            except:
+                pass
+        else:
+            if self.search_page_count < 10:  # 最大搜索页数
+                self.google_next_page()
+                return self.google_find_domain_result()
 
     def perform_click(self, ele):
         ActionChains(self.driver).move_to_element(ele).pause(self.random_sec(1)).click(ele).perform()
@@ -327,6 +369,20 @@ class CustomSeleniumSpider(object):
             self.random_sleep(8)
             self.simulation_human_visit()
 
+    def start_google(self):
+        for search_text in self.search_list:
+            self.google_search(search_text)
+            # 寻找自己的domain
+            target = self.google_find_domain_result()
+            self.reset()
+            if not target:
+                raise Exception(f'没有找到目标: {search_text}')
+            print(f'点击进入网站: {target}')
+            # 找到目标后进入，并模拟访问
+            self.fetch(target)
+            self.random_sleep(8)
+            self.simulation_human_visit()
+
     def start_one_url(self, target):
         # 找到目标后进入，并模拟访问
         self.fetch(target)
@@ -334,7 +390,7 @@ class CustomSeleniumSpider(object):
         self.simulation_human_visit()
 
 
-def run(num=1000):
+def run_direct(num=1000):
     for i in range(num):
         start = datetime.datetime.now()
         try:
@@ -343,11 +399,28 @@ def run(num=1000):
                 spider.start_one_url('http://blog.yueyawochong.cn')
         except KeyboardInterrupt:
             break
-        except:
-            pass
+        except Exception as e:
+            print(traceback.format_exc())
+        print(f'用时: {datetime.datetime.now() - start}')
+
+
+def run_google(num=1000):
+    for i in range(num):
+        start = datetime.datetime.now()
+        try:
+            with CustomSeleniumSpider(use_google='http://127.0.0.1:7890') as spider:
+                spider.start_google()
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            print(traceback.format_exc())
         print(f'用时: {datetime.datetime.now() - start}')
 
 
 if __name__ == '__main__':
-    with futures.ProcessPoolExecutor(max_workers=4) as executor:
-        executor.map(run, [100, 100, 100, 100])
+    # 直接网站进入
+    # with futures.ProcessPoolExecutor(max_workers=4) as executor:
+    #     executor.map(run_direct, [1000] * 6)
+    # run_direct(1)
+    # 谷歌搜索进入
+    run_google(100)
