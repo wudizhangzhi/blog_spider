@@ -118,9 +118,11 @@ class CustomSeleniumSpider(object):
             driver_options.add_argument(
                 f"user-agent={generate_user_agent(os=('win',), device_type=('desktop',), navigator=('chrome',))}")
             # 代理
-            driver_options.add_argument(
-                f"--proxy-server={self.get_proxy()}"
-            )
+            proxy = self.get_proxy()
+            if proxy:
+                driver_options.add_argument(
+                    f"--proxy-server={proxy}"
+                )
             driver_kwargs = {
                 'executable_path': driver_executable_path,
                 f'{driver_name}_options': driver_options
@@ -151,7 +153,10 @@ class CustomSeleniumSpider(object):
     def get_proxy(self):
         if self.use_google:
             return self.use_google
-        return requests.get(getattr(settings, 'PROXY_API'), timeout=10).text.replace('http://', '')
+        proxy_api = getattr(settings, 'PROXY_API', '')
+        if not proxy_api:
+            return None
+        return requests.get(proxy_api, timeout=10).text.replace('http://', '')
 
     def fetch(self, url, meta=None):
         self.driver.get(url)
@@ -348,7 +353,7 @@ class CustomSeleniumSpider(object):
 
             self.random_sleep(5)
 
-    def start(self):
+    def start_baidu(self):
         """
         从百度搜索进入，
         搜索关键词，
@@ -417,10 +422,25 @@ def run_google(num=1000):
         print(f'用时: {datetime.datetime.now() - start}')
 
 
+def run_baidu(num=1000):
+    for i in range(num):
+        start = datetime.datetime.now()
+        try:
+            with CustomSeleniumSpider() as spider:
+                spider.start_baidu()
+        except KeyboardInterrupt:
+            break
+        except Exception as e:
+            print(traceback.format_exc())
+        print(f'用时: {datetime.datetime.now() - start}')
+
+
 if __name__ == '__main__':
     # 直接网站进入
     # with futures.ProcessPoolExecutor(max_workers=4) as executor:
     #     executor.map(run_direct, [1000] * 6)
+    with futures.ProcessPoolExecutor(max_workers=4) as executor:
+        executor.map(run_baidu, [1000] * 6)
     # run_direct(1)
     # 谷歌搜索进入
-    run_google(100)
+    # run_google(100)
